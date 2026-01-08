@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venvScriptspython.exe tv_downloader_enhanced.py --url \"https://www.tradingview.com/scripts/luxalgo/\")",
+      "Bash(C:/Source/Repos/TradingView-Pine-Script-Downloader/.venv/Scripts/python.exe:*)",
+      "Bash(PYTHONIOENCODING=utf-8 C:/Source/Repos/TradingView-Pine-Script-Downloader/.venv/Scripts/python.exe:*)",
+      "Bash(cat:*)"
+    ]
+  }
+}
