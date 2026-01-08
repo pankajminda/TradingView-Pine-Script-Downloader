@@ -16,12 +16,24 @@ import argparse
 import asyncio
 import json
 import os
+import random
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, urljoin
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+
+
+# User agent pool for rotation (common browsers)
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+]
 
 
 def sanitize_filename(name: str) -> str:
@@ -54,25 +66,49 @@ class EnhancedTVScraper:
         }
         self.results = []
         self.progress_file = None
+        # Anti-detection state
+        self.consecutive_failures = 0
+        self.base_delay = 2.0  # Base delay in seconds
+        self.current_user_agent = random.choice(USER_AGENTS)
         
     async def setup(self):
-        """Initialize the browser with optimized settings."""
+        """Initialize the browser with anti-detection settings."""
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=self.headless,
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
-                '--disable-dev-shm-usage'
+                '--disable-dev-shm-usage',
+                '--disable-infobars',
+                '--window-size=1920,1080',
             ]
         )
+
+        # Randomize viewport within realistic ranges
+        viewport_width = random.randint(1280, 1920)
+        viewport_height = random.randint(800, 1080)
+
         self.context = await self.browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            locale='en-US'
+            viewport={'width': viewport_width, 'height': viewport_height},
+            user_agent=self.current_user_agent,
+            locale='en-US',
+            timezone_id='America/New_York',
+            # Add realistic browser properties
+            java_script_enabled=True,
+            has_touch=False,
+            is_mobile=False,
         )
         self.page = await self.context.new_page()
-        
+
+        # Mask webdriver property to avoid detection
+        await self.page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            window.chrome = {runtime: {}};
+        """)
+
         # Handle cookie consent popups
         self.page.on('dialog', lambda dialog: dialog.accept())
         
@@ -82,6 +118,50 @@ class EnhancedTVScraper:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
+
+    def _get_random_delay(self) -> float:
+        """Get randomized delay with jitter and backoff for failures."""
+        # Base delay: 2-5 seconds with random jitter
+        delay = self.base_delay + random.uniform(0, 3)
+        # Add small jitter (0-500ms)
+        delay += random.uniform(0, 0.5)
+        # Increase delay if we've had consecutive failures (backoff)
+        if self.consecutive_failures > 0:
+            backoff_multiplier = min(self.consecutive_failures, 5)  # Cap at 5x
+            delay *= (1 + backoff_multiplier * 0.5)
+            print(f"         (backoff: {delay:.1f}s delay due to {self.consecutive_failures} failures)")
+        return delay
+
+    async def _human_like_delay(self, min_ms: int = 100, max_ms: int = 500):
+        """Small random delay to simulate human reaction time."""
+        await self.page.wait_for_timeout(random.randint(min_ms, max_ms))
+
+    async def _human_like_scroll(self):
+        """Perform human-like scrolling behavior."""
+        # Random scroll down
+        scroll_amount = random.randint(100, 400)
+        await self.page.evaluate(f'window.scrollBy(0, {scroll_amount})')
+        await self._human_like_delay(200, 600)
+
+        # Sometimes scroll back up a bit
+        if random.random() < 0.3:
+            scroll_back = random.randint(50, 150)
+            await self.page.evaluate(f'window.scrollBy(0, -{scroll_back})')
+            await self._human_like_delay(100, 300)
+
+    async def _human_like_mouse_move(self):
+        """Simulate random mouse movements."""
+        try:
+            # Get viewport size
+            viewport = self.page.viewport_size
+            if viewport:
+                # Move mouse to random position
+                x = random.randint(100, viewport['width'] - 100)
+                y = random.randint(100, viewport['height'] - 100)
+                await self.page.mouse.move(x, y)
+                await self._human_like_delay(50, 200)
+        except:
+            pass  # Ignore mouse movement errors
 
     async def handle_cookie_consent(self):
         """Click away cookie consent banners if present."""
@@ -150,19 +230,22 @@ class EnhancedTVScraper:
             last_count = len(scripts)
             print(f"   Found {len(scripts)} scripts... (attempt {attempt + 1})", end='\r')
             
-            # Try to load more
+            # Try to load more with human-like behavior
             try:
                 load_more = self.page.locator('button:has-text("Show more")')
                 if await load_more.count() > 0:
+                    await self._human_like_delay(300, 800)
                     await load_more.first.click()
-                    await self.page.wait_for_timeout(2000)
+                    await self.page.wait_for_timeout(random.randint(1500, 2500))
                 else:
-                    # Try scrolling instead
-                    await self.page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                    await self.page.wait_for_timeout(1500)
+                    # Try scrolling instead with random amounts
+                    scroll_amount = random.randint(500, 1000)
+                    await self.page.evaluate(f'window.scrollBy(0, {scroll_amount})')
+                    await self.page.wait_for_timeout(random.randint(1200, 2000))
             except:
-                await self.page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                await self.page.wait_for_timeout(1500)
+                scroll_amount = random.randint(500, 1000)
+                await self.page.evaluate(f'window.scrollBy(0, {scroll_amount})')
+                await self.page.wait_for_timeout(random.randint(1200, 2000))
         
         print()  # New line after progress
         return list(scripts.values())
@@ -193,9 +276,12 @@ class EnhancedTVScraper:
             if not response or response.status >= 400:
                 result['error'] = f"HTTP {response.status if response else 'No response'}"
                 return result
-                
-            await self.page.wait_for_timeout(2000)
+
+            # Human-like behavior: wait, scroll, move mouse
+            await self.page.wait_for_timeout(random.randint(1500, 2500))
             await self.handle_cookie_consent()
+            await self._human_like_mouse_move()
+            await self._human_like_scroll()
             
             # Extract metadata
             result['title'] = await self.page.evaluate('''() => {
@@ -324,19 +410,25 @@ class EnhancedTVScraper:
     async def _try_source_tab_extraction(self) -> str:
         """Try clicking Source Code tab and extracting."""
         try:
+            # Human-like behavior before clicking
+            await self._human_like_mouse_move()
+            await self._human_like_delay(200, 500)
+
             # Find and click Source Code tab
             tab_selectors = [
                 '[role="tab"]:has-text("Source code")',
                 'button:has-text("Source code")',
                 'div:has-text("Source code"):not(:has(*))',
             ]
-            
+
             for selector in tab_selectors:
                 try:
                     tab = self.page.locator(selector)
                     if await tab.count() > 0:
+                        # Move mouse near the tab before clicking
+                        await self._human_like_delay(100, 300)
                         await tab.first.click()
-                        await self.page.wait_for_timeout(2500)
+                        await self.page.wait_for_timeout(random.randint(2000, 3000))
                         break
                 except:
                     continue
@@ -553,33 +645,38 @@ class EnhancedTVScraper:
             for i, script_info in enumerate(scripts, 1):
                 url = script_info['url']
                 title = script_info.get('title', 'Unknown')[:50]
-                
+
                 print(f"[{i}/{len(scripts)}] {title}...")
-                
+
                 result = await self.extract_pine_source(url)
                 self.results.append(result)
-                
+
                 if result['is_protected']:
                     print(f"         ⊘ Protected/Invite-only")
                     self.stats['skipped_protected'] += 1
+                    self.consecutive_failures = 0  # Protected scripts are not failures
                 elif result['error']:
                     print(f"         ✗ Error: {result['error']}")
                     self.stats['failed'] += 1
+                    self.consecutive_failures += 1  # Track failures for backoff
                 elif result['source_code']:
                     filepath = self.save_script(result, category)
                     print(f"         ✓ Saved ({len(result['source_code'])} chars)")
                     self.stats['downloaded'] += 1
+                    self.consecutive_failures = 0  # Reset on success
                 else:
                     print(f"         ⊘ No source code found")
                     self.stats['skipped_no_code'] += 1
-                
+                    self.consecutive_failures = 0  # No source is not a failure
+
                 # Save progress periodically
                 if i % 10 == 0:
                     self.save_progress(category)
-                
-                # Delay between requests
+
+                # Randomized delay between requests with backoff
                 if i < len(scripts):
-                    await self.page.wait_for_timeout(int(delay * 1000))
+                    delay_seconds = self._get_random_delay()
+                    await self.page.wait_for_timeout(int(delay_seconds * 1000))
             
             # Final progress save
             self.save_progress(category)
