@@ -181,6 +181,12 @@ class EnhancedTVScraper:
             'is_strategy': False,
             'is_protected': False,
             'author': '',
+            'published_date': '',
+            'description': '',
+            'tags': [],
+            'boosts': 0,
+            'views': 0,
+            'comments': 0,
             'error': None
         }
         
@@ -203,7 +209,77 @@ class EnhancedTVScraper:
                 const authorLink = document.querySelector('a[href^="/u/"]');
                 return authorLink ? authorLink.textContent.trim().replace('by ', '') : '';
             }''')
-            
+
+            # Extract extended metadata (published date, description, tags, stats)
+            extended_meta = await self.page.evaluate('''() => {
+                const meta = {
+                    published_date: '',
+                    description: '',
+                    tags: [],
+                    boosts: 0,
+                    views: 0,
+                    comments: 0
+                };
+
+                // Published date from time element
+                const timeEl = document.querySelector('time');
+                if (timeEl) {
+                    meta.published_date = timeEl.getAttribute('datetime') || timeEl.textContent.trim();
+                }
+
+                // Description from meta tag
+                const metaDesc = document.querySelector('meta[name="description"]');
+                if (metaDesc) {
+                    meta.description = metaDesc.getAttribute('content') || '';
+                }
+
+                // Tags from section with tags class
+                const tagSection = document.querySelector('section[class*="tags"]');
+                if (tagSection) {
+                    const tagLinks = tagSection.querySelectorAll('a[href*="/scripts/"]');
+                    tagLinks.forEach(a => {
+                        const tagName = a.textContent.trim();
+                        if (tagName && !meta.tags.includes(tagName)) {
+                            meta.tags.push(tagName);
+                        }
+                    });
+                }
+
+                // Boosts from aria-label (e.g., "836 boosts")
+                const boostSpan = document.querySelector('span[aria-label*="boosts"]');
+                if (boostSpan) {
+                    const label = boostSpan.getAttribute('aria-label') || '';
+                    const match = label.match(/(\\d+)/);
+                    if (match) meta.boosts = parseInt(match[1], 10);
+                }
+
+                // Views/Uses from aria-label
+                const viewsSpan = document.querySelector('span[aria-label*="uses"]');
+                if (viewsSpan) {
+                    const label = viewsSpan.getAttribute('aria-label') || '';
+                    const match = label.match(/(\\d+)/);
+                    if (match) meta.views = parseInt(match[1], 10);
+                }
+
+                // Comments from aria-label
+                const commentsSpan = document.querySelector('span[aria-label*="comments"]');
+                if (commentsSpan) {
+                    const label = commentsSpan.getAttribute('aria-label') || '';
+                    const match = label.match(/(\\d+)/);
+                    if (match) meta.comments = parseInt(match[1], 10);
+                }
+
+                return meta;
+            }''')
+
+            # Merge extended metadata
+            result['published_date'] = extended_meta.get('published_date', '')
+            result['description'] = extended_meta.get('description', '')
+            result['tags'] = extended_meta.get('tags', [])
+            result['boosts'] = extended_meta.get('boosts', 0)
+            result['views'] = extended_meta.get('views', 0)
+            result['comments'] = extended_meta.get('comments', 0)
+
             # Check if open-source (FIXED: look for explicit open-source indicator, not lock icons)
             script_type = await self.page.evaluate('''() => {
                 const pageText = document.body.innerText;
@@ -396,15 +472,22 @@ class EnhancedTVScraper:
         filename = f"{result['script_id']}_{safe_title}.pine"
         filepath = category_dir / filename
         
-        # Build header
+        # Format tags for header
+        tags_str = ', '.join(result.get('tags', [])) if result.get('tags') else ''
+
+        # Build header with extended metadata
         header = [
             f"// Title: {result['title']}",
             f"// Script ID: {result['script_id']}",
             f"// Author: {result['author']}",
             f"// URL: {result['url']}",
+            f"// Published: {result.get('published_date', '')}",
             f"// Downloaded: {datetime.now().isoformat()}",
             f"// Pine Version: {result['version']}",
             f"// Type: {'Strategy' if result['is_strategy'] else 'Indicator'}",
+            f"// Boosts: {result.get('boosts', 0)}",
+            f"// Views: {result.get('views', 0)}",
+            f"// Tags: {tags_str}",
             "//",
             ""
         ]
@@ -548,7 +631,13 @@ class EnhancedTVScraper:
                 'version': r['version'],
                 'is_strategy': r['is_strategy'],
                 'is_protected': r['is_protected'],
-                'has_source': bool(r['source_code']),
+                'has_source': bool(r.get('source_code')),
+                'published_date': r.get('published_date', ''),
+                'description': r.get('description', ''),
+                'tags': r.get('tags', []),
+                'boosts': r.get('boosts', 0),
+                'views': r.get('views', 0),
+                'comments': r.get('comments', 0),
                 'error': r['error']
             })
         
