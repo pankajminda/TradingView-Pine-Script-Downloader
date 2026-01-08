@@ -223,10 +223,15 @@ class EnhancedTVScraper:
                     meta.published_date = timeEl.getAttribute('datetime') || timeEl.textContent.trim();
                 }
 
-                // Description from meta tag
-                const metaDesc = document.querySelector('meta[name="description"]');
-                if (metaDesc) {
-                    meta.description = metaDesc.getAttribute('content') || '';
+                // Description from page content (full text), fallback to meta tag
+                const descDiv = document.querySelector('div[class*="description"]');
+                if (descDiv) {
+                    meta.description = descDiv.innerText.trim();
+                } else {
+                    const metaDesc = document.querySelector('meta[name="description"]');
+                    if (metaDesc) {
+                        meta.description = metaDesc.getAttribute('content') || '';
+                    }
                 }
 
                 // Tags from section with tags class
