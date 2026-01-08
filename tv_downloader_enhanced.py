@@ -192,25 +192,32 @@ class EnhancedTVScraper:
         no_change_count = 0
         
         for attempt in range(max_scroll_attempts):
-            # Get current scripts
+            # Get current scripts (improved extraction)
             current_scripts = await self.page.evaluate('''() => {
                 const scripts = [];
-                const links = document.querySelectorAll('a[href*="/script/"]');
-                
+                const links = document.querySelectorAll('a');
+
                 links.forEach(link => {
                     const href = link.href;
-                    // Filter to only main script links (not comments, etc.)
-                    if (href && href.match(/\\/script\\/[a-zA-Z0-9]+-.+\\/?$/)) {
+                    // Include /script/ links, exclude comment links
+                    if (href &&
+                        href.includes('/script/') &&
+                        href.match(/\\/script\\/[a-zA-Z0-9]+/) &&
+                        !href.endsWith('#chart-view-comment-form')) {
+
+                        // Clean URL: remove query params and hash
+                        const cleanUrl = href.split('?')[0].split('#')[0];
                         const title = link.textContent?.trim();
-                        if (title && title.length > 5 && !scripts.some(s => s.url === href)) {
+
+                        if (!scripts.some(s => s.url === cleanUrl)) {
                             scripts.push({
-                                url: href,
-                                title: title.substring(0, 200)
+                                url: cleanUrl,
+                                title: (title && title.length > 3) ? title.substring(0, 200) : 'Unknown'
                             });
                         }
                     }
                 });
-                
+
                 return scripts;
             }''')
             
