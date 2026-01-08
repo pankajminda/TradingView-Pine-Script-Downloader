@@ -185,8 +185,6 @@ class EnhancedTVScraper:
             'description': '',
             'tags': [],
             'boosts': 0,
-            'views': 0,
-            'comments': 0,
             'error': None
         }
         
@@ -216,9 +214,7 @@ class EnhancedTVScraper:
                     published_date: '',
                     description: '',
                     tags: [],
-                    boosts: 0,
-                    views: 0,
-                    comments: 0
+                    boosts: 0
                 };
 
                 // Published date from time element
@@ -253,22 +249,6 @@ class EnhancedTVScraper:
                     if (match) meta.boosts = parseInt(match[1], 10);
                 }
 
-                // Views/Uses from aria-label
-                const viewsSpan = document.querySelector('span[aria-label*="uses"]');
-                if (viewsSpan) {
-                    const label = viewsSpan.getAttribute('aria-label') || '';
-                    const match = label.match(/(\\d+)/);
-                    if (match) meta.views = parseInt(match[1], 10);
-                }
-
-                // Comments from aria-label
-                const commentsSpan = document.querySelector('span[aria-label*="comments"]');
-                if (commentsSpan) {
-                    const label = commentsSpan.getAttribute('aria-label') || '';
-                    const match = label.match(/(\\d+)/);
-                    if (match) meta.comments = parseInt(match[1], 10);
-                }
-
                 return meta;
             }''')
 
@@ -277,8 +257,6 @@ class EnhancedTVScraper:
             result['description'] = extended_meta.get('description', '')
             result['tags'] = extended_meta.get('tags', [])
             result['boosts'] = extended_meta.get('boosts', 0)
-            result['views'] = extended_meta.get('views', 0)
-            result['comments'] = extended_meta.get('comments', 0)
 
             # Check if open-source (FIXED: look for explicit open-source indicator, not lock icons)
             script_type = await self.page.evaluate('''() => {
@@ -486,7 +464,6 @@ class EnhancedTVScraper:
             f"// Pine Version: {result['version']}",
             f"// Type: {'Strategy' if result['is_strategy'] else 'Indicator'}",
             f"// Boosts: {result.get('boosts', 0)}",
-            f"// Views: {result.get('views', 0)}",
             f"// Tags: {tags_str}",
             "//",
             ""
@@ -636,8 +613,6 @@ class EnhancedTVScraper:
                 'description': r.get('description', ''),
                 'tags': r.get('tags', []),
                 'boosts': r.get('boosts', 0),
-                'views': r.get('views', 0),
-                'comments': r.get('comments', 0),
                 'error': r['error']
             })
         
